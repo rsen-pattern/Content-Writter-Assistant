@@ -9,7 +9,7 @@ import json
 from utils.serp import fetch_serp_results
 from utils.internal_urls import get_internal_urls
 from utils.scraper import full_scrape, light_scrape, format_competitor_data, format_internal_data
-from utils.llm import call_llm, parse_llm_json
+from utils.llm import call_llm, parse_llm_json, BIFROST_MODELS
 from utils.google_docs import export_markdown_fallback
 from prompts.content_brief import build_brief_prompt
 from prompts.draft_writer import (
@@ -93,20 +93,24 @@ with st.sidebar:
     st.header("🔑 API Keys")
     anthropic_key = st.text_input("Anthropic API Key", type="password", value=st.session_state.get("anthropic_key", ""))
     openai_key = st.text_input("OpenAI API Key", type="password", value=st.session_state.get("openai_key", ""))
+    bifrost_key = st.text_input("Bifrost API Key", type="password", value=st.session_state.get("bifrost_key", ""), help="Pattern's LLM proxy key (sk-bf-...)")
     dataforseo_login = st.text_input("DataForSEO Login", value=st.session_state.get("dataforseo_login", ""))
     dataforseo_password = st.text_input("DataForSEO Password", type="password", value=st.session_state.get("dataforseo_password", ""))
 
     st.session_state["anthropic_key"] = anthropic_key
     st.session_state["openai_key"] = openai_key
+    st.session_state["bifrost_key"] = bifrost_key
     st.session_state["dataforseo_login"] = dataforseo_login
     st.session_state["dataforseo_password"] = dataforseo_password
 
     st.header("⚙️ LLM Settings")
-    provider = st.selectbox("Provider", ["anthropic", "openai"])
+    provider = st.selectbox("Provider", ["anthropic", "openai", "bifrost"])
     if provider == "anthropic":
         model = st.selectbox("Model", ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-20250514"])
-    else:
+    elif provider == "openai":
         model = st.selectbox("Model", ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"])
+    else:
+        model = st.selectbox("Model", BIFROST_MODELS)
     st.session_state["llm_provider"] = provider
     st.session_state["llm_model"] = model
 
@@ -136,7 +140,12 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 def _llm_kwargs() -> dict:
     prov = st.session_state.get("llm_provider", "anthropic")
-    key = st.session_state.get("anthropic_key", "") if prov == "anthropic" else st.session_state.get("openai_key", "")
+    if prov == "anthropic":
+        key = st.session_state.get("anthropic_key", "")
+    elif prov == "bifrost":
+        key = st.session_state.get("bifrost_key", "")
+    else:
+        key = st.session_state.get("openai_key", "")
     return {
         "provider": prov,
         "model": st.session_state.get("llm_model", ""),
