@@ -1,5 +1,7 @@
 """Featured snippet optimizer prompts."""
 
+from prompts.seo_directive import SEO_WRITING_DIRECTIVE
+
 
 def snippet_system_prompt(locale_config: dict) -> str:
     lang = locale_config.get("language_variant", "Australian English")
@@ -14,7 +16,9 @@ Each answer target must:
 - Directly answer the query in the first sentence
 - Be factual and authoritative
 - Use natural language (not keyword-stuffed)
-- Be self-contained (makes sense without surrounding context)"""
+- Be self-contained (makes sense without surrounding context)
+
+{SEO_WRITING_DIRECTIVE}"""
 
 
 SNIPPET_USER_PROMPT_TEMPLATE = """Generate featured snippet answer targets for the following keywords.

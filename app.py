@@ -677,12 +677,13 @@ with tab3:
         if st.button("🚀 Generate Draft (3-Pass Pipeline)"):
             locale = st.session_state["locale_config"]
             llm = _llm_kwargs()
+            page_format = st.session_state.get("approved_brief_json", {}).get("metadata", {}).get("page_format", "")
 
             # Pass 1: First draft
             st.subheader("Pass 1: Writing First Draft")
             with st.spinner("Writing first draft..."):
                 first_draft = call_llm(
-                    system_prompt=draft_system_prompt(locale),
+                    system_prompt=draft_system_prompt(locale, page_format),
                     user_prompt=draft_user_prompt(approved),
                     max_tokens=8192,
                     **llm,
@@ -709,7 +710,7 @@ with tab3:
             st.subheader("Pass 3: Final Revision")
             with st.spinner("Revising draft with EEAT improvements..."):
                 final = call_llm(
-                    system_prompt=revision_system_prompt(locale),
+                    system_prompt=revision_system_prompt(locale, page_format),
                     user_prompt=revision_user_prompt(first_draft, eeat),
                     max_tokens=8192,
                     **llm,

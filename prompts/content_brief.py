@@ -1,10 +1,14 @@
 """Content brief generation prompts."""
 
-SYSTEM_PROMPT = """You are an expert SEO content strategist who creates professional agency-quality content briefs.
+from prompts.seo_directive import SEO_WRITING_DIRECTIVE
+
+SYSTEM_PROMPT = f"""You are an expert SEO content strategist who creates professional agency-quality content briefs.
 You produce specific, actionable briefs — not generic best practices.
 
 Every recommendation must be grounded in competitor data provided.
-Your output must be valid JSON matching the exact schema specified."""
+Your output must be valid JSON matching the exact schema specified.
+
+{SEO_WRITING_DIRECTIVE}"""
 
 USER_PROMPT_TEMPLATE = """Analyse the following data and produce a content brief.
 

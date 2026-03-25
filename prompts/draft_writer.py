@@ -1,9 +1,12 @@
 """Draft writer prompts – 3-pass pipeline: draft, EEAT analysis, revision."""
 
+from prompts.seo_directive import SEO_WRITING_DIRECTIVE, get_page_type_guide
 
-def draft_system_prompt(locale_config: dict) -> str:
+
+def draft_system_prompt(locale_config: dict, page_format: str = "") -> str:
     lang = locale_config.get("language_variant", "Australian English")
     spelling = locale_config.get("spelling_notes", "")
+    page_guide = get_page_type_guide(page_format) if page_format else ""
     return f"""You are an expert content writer producing publication-ready content for {locale_config.get('country', 'Australia')}.
 
 LANGUAGE: Write in {lang}. Use {spelling}
@@ -17,7 +20,11 @@ CRITICAL RULES:
 - Incorporate internal links naturally using the recommended anchor text: [anchor text](url)
 - Target primary keywords in: H1, first 100 words, and 2-3 subheadings
 - Distribute secondary keywords naturally across sections
-- Never keyword stuff — if it reads unnaturally, cut the keyword"""
+- Never keyword stuff — if it reads unnaturally, cut the keyword
+
+{SEO_WRITING_DIRECTIVE}
+
+{page_guide}"""
 
 
 def draft_user_prompt(approved_brief: str) -> str:
@@ -30,7 +37,7 @@ APPROVED CONTENT BRIEF:
 Write the full article now in markdown format."""
 
 
-EEAT_SYSTEM_PROMPT = """You are an EEAT specialist reviewing content against Google's Quality Rater Guidelines.
+EEAT_SYSTEM_PROMPT = f"""You are an EEAT specialist reviewing content against Google's Quality Rater Guidelines.
 Provide specific, actionable revision recommendations grounded in competitor analysis.
 
 For each recommendation:
@@ -38,7 +45,9 @@ For each recommendation:
 2. Explain why it matters for EEAT
 3. Provide a concrete fix
 
-Focus on: Experience signals, Expertise demonstrations, Authoritativeness indicators, and Trustworthiness elements."""
+Focus on: Experience signals, Expertise demonstrations, Authoritativeness indicators, and Trustworthiness elements.
+
+{SEO_WRITING_DIRECTIVE}"""
 
 
 def eeat_user_prompt(draft: str, competitor_data: str) -> str:
@@ -54,15 +63,20 @@ COMPETITOR CONTENT FOR COMPARISON:
 Provide your EEAT analysis with numbered recommendations."""
 
 
-def revision_system_prompt(locale_config: dict) -> str:
+def revision_system_prompt(locale_config: dict, page_format: str = "") -> str:
     lang = locale_config.get("language_variant", "Australian English")
     spelling = locale_config.get("spelling_notes", "")
+    page_guide = get_page_type_guide(page_format) if page_format else ""
     return f"""Revise the draft incorporating EEAT improvements.
 Maintain all [PLACEHOLDER] markers.
 Ensure Q&A style sections answer the question directly in the first sentence.
 Verify all internal links use natural anchor text.
 ALL text must use {lang} spelling.
-{spelling}"""
+{spelling}
+
+{SEO_WRITING_DIRECTIVE}
+
+{page_guide}"""
 
 
 def revision_user_prompt(draft: str, eeat_analysis: str) -> str:
