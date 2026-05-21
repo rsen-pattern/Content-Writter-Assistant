@@ -9,6 +9,7 @@ import json
 from utils.serp import fetch_serp_results
 from utils.internal_urls import get_internal_urls
 from utils.scraper import full_scrape, light_scrape, format_competitor_data, format_internal_data
+from utils.keyword_research import fetch_keyword_data, format_keyword_data_for_llm
 from utils.llm import call_llm, parse_llm_json, BIFROST_MODELS
 from utils.google_docs import export_markdown_fallback
 from prompts.content_brief import build_brief_prompt
@@ -91,17 +92,31 @@ LOCALE_PRESETS = {
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("🔑 API Keys")
-    anthropic_key = st.text_input("Anthropic API Key", type="password", value=st.session_state.get("anthropic_key", ""))
-    openai_key = st.text_input("OpenAI API Key", type="password", value=st.session_state.get("openai_key", ""))
-    bifrost_key = st.text_input("Bifrost API Key", type="password", value=st.session_state.get("bifrost_key", ""), help="Pattern's LLM proxy key (sk-bf-...)")
-    dataforseo_login = st.text_input("DataForSEO Login", value=st.session_state.get("dataforseo_login", ""))
-    dataforseo_password = st.text_input("DataForSEO Password", type="password", value=st.session_state.get("dataforseo_password", ""))
+
+    def _secret(name: str) -> str:
+        """Read a key from Streamlit secrets, returning '' if missing or secrets.toml is absent."""
+        try:
+            return st.secrets.get(name, "") or ""
+        except Exception:
+            return ""
+
+    anthropic_key = st.text_input("Anthropic API Key", type="password", value=st.session_state.get("anthropic_key") or _secret("ANTHROPIC_KEY"))
+    openai_key = st.text_input("OpenAI API Key", type="password", value=st.session_state.get("openai_key") or _secret("OPENAI_KEY"))
+    bifrost_key = st.text_input("Bifrost API Key", type="password", value=st.session_state.get("bifrost_key") or _secret("BIFROST_KEY"), help="Pattern's LLM proxy key (sk-bf-...)")
+    dataforseo_login = st.text_input("DataForSEO Login", value=st.session_state.get("dataforseo_login") or _secret("DATAFORSEO_LOGIN"))
+    dataforseo_password = st.text_input("DataForSEO Password", type="password", value=st.session_state.get("dataforseo_password") or _secret("DATAFORSEO_PASSWORD"))
+    semrush_key = st.text_input("SEMrush API Key", type="password", value=st.session_state.get("semrush_key") or _secret("SEMRUSH_KEY"), help="Used for keyword volume, CPC, and related keywords")
+    scraperapi_key = st.text_input("ScraperAPI Key", type="password", value=st.session_state.get("scraperapi_key") or _secret("SCRAPERAPI_KEY"), help="Used as a fallback when direct scraping fails (Cloudflare, 403/429)")
+    webscraping_ai_key = st.text_input("WebScraping.ai Key", type="password", value=st.session_state.get("webscraping_ai_key") or _secret("WEBSCRAPING_AI_KEY"), help="AI-powered structured extraction for competitor pages")
 
     st.session_state["anthropic_key"] = anthropic_key
     st.session_state["openai_key"] = openai_key
     st.session_state["bifrost_key"] = bifrost_key
     st.session_state["dataforseo_login"] = dataforseo_login
     st.session_state["dataforseo_password"] = dataforseo_password
+    st.session_state["semrush_key"] = semrush_key
+    st.session_state["scraperapi_key"] = scraperapi_key
+    st.session_state["webscraping_ai_key"] = webscraping_ai_key
 
     st.header("⚙️ LLM Settings")
     provider = st.selectbox("Provider", ["bifrost", "anthropic", "openai"])
@@ -189,9 +204,38 @@ with tab0:
                     )
                 if results.get("error"):
                     st.error(f"DataForSEO error: {results['error']}")
-                st.session_state["serp_results"] = results.get("organic", [])
-                st.session_state["people_also_ask"] = results.get("people_also_ask", [])
+                else:
+                    st.session_state["serp_results"] = results.get("organic", [])
+                    st.session_state["people_also_ask"] = results.get("people_also_ask", [])
+
+                if semrush_key:
+                    with st.spinner("Fetching SEMrush keyword data..."):
+                        try:
+                            kw_data = fetch_keyword_data(target_keyword, semrush_key)
+                            st.session_state["keyword_data"] = kw_data
+                        except Exception as e:
+                            st.warning(f"SEMrush lookup failed: {e}")
+                            st.session_state.pop("keyword_data", None)
                 st.rerun()
+
+    # Display SEMrush keyword data
+    kw_data = st.session_state.get("keyword_data")
+    if kw_data:
+        st.subheader("🔑 Keyword Research (SEMrush)")
+        target = kw_data.get("target")
+        if target:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Volume", f"{target.get('volume', 0):,}")
+            c2.metric("CPC", f"${target.get('cpc', 0.0):.2f}")
+            c3.metric("Competition", f"{target.get('competition', 0.0):.2f}")
+            c4.metric("Results", f"{target.get('results', 0):,}")
+        related = kw_data.get("related", [])
+        if related:
+            with st.expander(f"Related keywords ({len(related)})"):
+                st.dataframe(
+                    [{"keyword": r.get("keyword", ""), "volume": r.get("volume", 0), "cpc": r.get("cpc", 0.0)} for r in related],
+                    use_container_width=True,
+                )
 
     # Display SERP results
     serp = st.session_state.get("serp_results", [])
@@ -304,9 +348,12 @@ with tab1:
             scraped = []
             total = len(comp_urls) + len(int_urls)
 
+            sa_key = st.session_state.get("scraperapi_key", "")
+            wsa_key = st.session_state.get("webscraping_ai_key", "")
+
             for i, url in enumerate(comp_urls):
                 with st.spinner(f"Scraping {url}..."):
-                    page = full_scrape(url)
+                    page = full_scrape(url, scraperapi_key=sa_key, webscraping_ai_key=wsa_key)
                     scraped.append(page)
                 progress.progress((i + 1) / total)
 
@@ -317,7 +364,7 @@ with tab1:
             internal_scraped = []
             for j, u in enumerate(int_urls):
                 with st.spinner(f"Light scraping {u['url']}..."):
-                    result = light_scrape(u["url"])
+                    result = light_scrape(u["url"], scraperapi_key=sa_key)
                     internal_scraped.append(result)
                 progress.progress((len(comp_urls) + j + 1) / total)
 
@@ -366,6 +413,7 @@ with tab1:
                 competitor_data=st.session_state.get("scraped_formatted", ""),
                 internal_data=st.session_state.get("internal_formatted", ""),
                 people_also_ask=st.session_state.get("people_also_ask", []),
+                keyword_data_md=format_keyword_data_for_llm(st.session_state.get("keyword_data", {})),
             )
 
             with st.spinner("Generating content brief..."):
@@ -385,6 +433,58 @@ with tab1:
                 st.warning("Failed to parse brief as JSON. Showing raw output for manual editing.")
                 st.session_state["raw_brief_json"] = None
                 st.session_state["raw_brief_text"] = raw
+
+
+def _brief_json_to_markdown(brief: dict) -> str:
+    """Convert approved brief JSON to a formatted markdown string for the draft writer."""
+    lines = ["# Content Brief\n"]
+
+    meta = brief.get("metadata", {})
+    lines.append("## Metadata")
+    for key, val in meta.items():
+        if key in ("primary_keywords", "secondary_keywords", "internal_links"):
+            continue
+        lines.append(f"- **{key.replace('_', ' ').title()}**: {val}")
+
+    lines.append("\n### Primary Keywords")
+    for kw in meta.get("primary_keywords", []):
+        lines.append(f"- {kw.get('keyword', '')} (vol: {kw.get('search_volume', 'N/A')})")
+
+    lines.append("\n### Secondary Keywords")
+    for kw in meta.get("secondary_keywords", []):
+        lines.append(f"- {kw.get('keyword', '')}")
+
+    lines.append("\n### Internal Links")
+    for link in meta.get("internal_links", []):
+        lines.append(f"- [{link.get('anchor_text', '')}]({link.get('url', '')}) — {link.get('placement_note', '')}")
+
+    lines.append("\n## Content Outline")
+    for h in brief.get("content_outline", []):
+        prefix = "#" * (int(h.get("level", "H2")[1]) if h.get("level", "H2")[1:].isdigit() else 2)
+        lines.append(f"\n{prefix} {h.get('text', '')}")
+        lines.append(f"*Instructions: {h.get('instructions', '')}*")
+
+    faqs = brief.get("faqs", [])
+    if faqs:
+        lines.append("\n## FAQs")
+        for faq in faqs:
+            lines.append(f"\n**Q: {faq.get('question', '')}**")
+            lines.append(f"Answer direction: {faq.get('answer_direction', '')}")
+
+    chart = brief.get("chart_table_ideas", "")
+    if chart:
+        lines.append(f"\n## Chart & Table Ideas\n{chart}")
+
+    eeat = brief.get("eeat_ideas", "")
+    if eeat:
+        lines.append(f"\n## EEAT Ideas\n{eeat}")
+
+    notes = brief.get("additional_notes", "")
+    if notes:
+        lines.append(f"\n## Additional Notes\n{notes}")
+
+    return "\n".join(lines)
+
 
 # ===== TAB 2: Content Brief (Review Gate) =====
 with tab2:
@@ -622,57 +722,6 @@ with tab2:
             md = _brief_json_to_markdown(approved_json)
             st.session_state["approved_brief"] = md
             st.success("Brief approved! Go to Tab 3 to generate the draft.")
-
-
-def _brief_json_to_markdown(brief: dict) -> str:
-    """Convert approved brief JSON to a formatted markdown string for the draft writer."""
-    lines = ["# Content Brief\n"]
-
-    meta = brief.get("metadata", {})
-    lines.append("## Metadata")
-    for key, val in meta.items():
-        if key in ("primary_keywords", "secondary_keywords", "internal_links"):
-            continue
-        lines.append(f"- **{key.replace('_', ' ').title()}**: {val}")
-
-    lines.append("\n### Primary Keywords")
-    for kw in meta.get("primary_keywords", []):
-        lines.append(f"- {kw.get('keyword', '')} (vol: {kw.get('search_volume', 'N/A')})")
-
-    lines.append("\n### Secondary Keywords")
-    for kw in meta.get("secondary_keywords", []):
-        lines.append(f"- {kw.get('keyword', '')}")
-
-    lines.append("\n### Internal Links")
-    for link in meta.get("internal_links", []):
-        lines.append(f"- [{link.get('anchor_text', '')}]({link.get('url', '')}) — {link.get('placement_note', '')}")
-
-    lines.append("\n## Content Outline")
-    for h in brief.get("content_outline", []):
-        prefix = "#" * (int(h.get("level", "H2")[1]) if h.get("level", "H2")[1:].isdigit() else 2)
-        lines.append(f"\n{prefix} {h.get('text', '')}")
-        lines.append(f"*Instructions: {h.get('instructions', '')}*")
-
-    faqs = brief.get("faqs", [])
-    if faqs:
-        lines.append("\n## FAQs")
-        for faq in faqs:
-            lines.append(f"\n**Q: {faq.get('question', '')}**")
-            lines.append(f"Answer direction: {faq.get('answer_direction', '')}")
-
-    chart = brief.get("chart_table_ideas", "")
-    if chart:
-        lines.append(f"\n## Chart & Table Ideas\n{chart}")
-
-    eeat = brief.get("eeat_ideas", "")
-    if eeat:
-        lines.append(f"\n## EEAT Ideas\n{eeat}")
-
-    notes = brief.get("additional_notes", "")
-    if notes:
-        lines.append(f"\n## Additional Notes\n{notes}")
-
-    return "\n".join(lines)
 
 
 # ===== TAB 3: EEAT Draft =====

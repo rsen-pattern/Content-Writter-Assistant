@@ -7,6 +7,10 @@ from dataclasses import dataclass, field
 import trafilatura
 
 
+SCRAPERAPI_BASE_URL = "https://api.scraperapi.com/"
+WEBSCRAPING_AI_FIELDS_URL = "https://api.webscraping.ai/ai/fields"
+
+
 @dataclass
 class PageData:
     url: str
@@ -23,7 +27,7 @@ class PageData:
     error: str = ""
 
 
-def _fetch_html(url: str, timeout: int = 15) -> str:
+def _fetch_html_direct(url: str, timeout: int = 15) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -31,6 +35,34 @@ def _fetch_html(url: str, timeout: int = 15) -> str:
     resp = requests.get(url, timeout=timeout, headers=headers)
     resp.raise_for_status()
     return resp.text
+
+
+def _fetch_html_scraperapi(url: str, api_key: str, render: bool = True, timeout: int = 60) -> str:
+    """Fetch a URL through ScraperAPI's proxy (handles Cloudflare, JS rendering)."""
+    params = {
+        "api_key": api_key,
+        "url": url,
+        "render": "true" if render else "false",
+    }
+    resp = requests.get(SCRAPERAPI_BASE_URL, params=params, timeout=timeout)
+    resp.raise_for_status()
+    return resp.text
+
+
+def _fetch_html(url: str, scraperapi_key: str = "", timeout: int = 15) -> str:
+    """Fetch a URL, falling back to ScraperAPI when the direct request fails or returns empty."""
+    try:
+        html = _fetch_html_direct(url, timeout=timeout)
+        if html and len(html) > 500:
+            return html
+        # Tiny response often means a soft block; try the proxy if available
+        if not scraperapi_key:
+            return html
+    except requests.RequestException:
+        if not scraperapi_key:
+            raise
+
+    return _fetch_html_scraperapi(url, scraperapi_key)
 
 
 def _extract_headings(soup: BeautifulSoup) -> list[dict]:
@@ -87,11 +119,90 @@ def _extract_tables(soup: BeautifulSoup) -> list[str]:
     return tables
 
 
-def full_scrape(url: str) -> PageData:
-    """Full scrape for competitor pages."""
+_WEBSCRAPING_AI_FIELDS = {
+    "title": "The page title (HTML <title> tag).",
+    "meta_description": "The page meta description.",
+    "h1": "The main H1 heading text.",
+    "headings": "All H2 and H3 headings on the page as a JSON array of objects with 'level' and 'text'.",
+    "faqs": "Any FAQ-style question/answer pairs on the page as a JSON array of objects with 'question' and 'answer'.",
+    "main_content": "The primary article body content as plain text, excluding navigation, footers, and ads. Up to 4000 characters.",
+}
+
+
+def _scrape_via_webscraping_ai(url: str, api_key: str, timeout: int = 90) -> PageData:
+    """Use WebScraping.ai's AI fields endpoint to extract structured data in one call."""
+    import json as _json
+
+    page = PageData(url=url)
+    params = {
+        "api_key": api_key,
+        "url": url,
+        "js": "true",
+    }
+    # WebScraping.ai accepts fields as fields[key]=description query params
+    for key, description in _WEBSCRAPING_AI_FIELDS.items():
+        params[f"fields[{key}]"] = description
+
+    try:
+        resp = requests.get(WEBSCRAPING_AI_FIELDS_URL, params=params, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        page.error = f"WebScraping.ai: {e}"
+        return page
+
+    page.title = (data.get("title") or "").strip()
+    page.meta_description = (data.get("meta_description") or "").strip()
+    page.h1 = (data.get("h1") or "").strip()
+    page.content = (data.get("main_content") or "").strip()
+    page.word_count = len(page.content.split()) if page.content else 0
+
+    # headings / faqs may come back as JSON strings or already-parsed lists
+    headings_raw = data.get("headings")
+    if isinstance(headings_raw, str):
+        try:
+            headings_raw = _json.loads(headings_raw)
+        except _json.JSONDecodeError:
+            headings_raw = []
+    if isinstance(headings_raw, list):
+        page.headings = [
+            {"level": str(h.get("level", "H2")).upper(), "text": str(h.get("text", "")).strip()}
+            for h in headings_raw
+            if isinstance(h, dict) and h.get("text")
+        ]
+
+    faqs_raw = data.get("faqs")
+    if isinstance(faqs_raw, str):
+        try:
+            faqs_raw = _json.loads(faqs_raw)
+        except _json.JSONDecodeError:
+            faqs_raw = []
+    if isinstance(faqs_raw, list):
+        page.faqs = [
+            {"question": str(f.get("question", "")).strip(), "answer": str(f.get("answer", "")).strip()}
+            for f in faqs_raw
+            if isinstance(f, dict) and f.get("question")
+        ]
+
+    return page
+
+
+def full_scrape(url: str, scraperapi_key: str = "", webscraping_ai_key: str = "") -> PageData:
+    """Full scrape for competitor pages.
+
+    Strategy:
+    1. If webscraping_ai_key is set, use WebScraping.ai's AI extraction (best quality on JS-heavy pages).
+    2. Otherwise, fetch directly with ScraperAPI fallback and parse with BeautifulSoup + trafilatura.
+    """
+    if webscraping_ai_key:
+        page = _scrape_via_webscraping_ai(url, webscraping_ai_key)
+        if not page.error and (page.content or page.headings):
+            return page
+        # On WebScraping.ai failure, fall through to the standard path
+
     page = PageData(url=url)
     try:
-        html = _fetch_html(url)
+        html = _fetch_html(url, scraperapi_key=scraperapi_key)
     except Exception as e:
         page.error = str(e)
         return page
@@ -138,11 +249,11 @@ def full_scrape(url: str) -> PageData:
     return page
 
 
-def light_scrape(url: str) -> dict:
+def light_scrape(url: str, scraperapi_key: str = "") -> dict:
     """Light scrape for internal URLs – title + meta + H1 only."""
     result = {"url": url, "title": "", "meta_description": "", "h1": "", "error": ""}
     try:
-        html = _fetch_html(url)
+        html = _fetch_html(url, scraperapi_key=scraperapi_key)
     except Exception as e:
         result["error"] = str(e)
         return result
