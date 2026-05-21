@@ -104,7 +104,7 @@ with st.sidebar:
     st.session_state["dataforseo_password"] = dataforseo_password
 
     st.header("⚙️ LLM Settings")
-    provider = st.selectbox("Provider", ["anthropic", "openai", "bifrost"])
+    provider = st.selectbox("Provider", ["bifrost", "anthropic", "openai"])
     if provider == "anthropic":
         model = st.selectbox("Model", ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-20250514"])
     elif provider == "openai":
@@ -139,7 +139,7 @@ with st.sidebar:
 # Helper: get LLM config
 # ---------------------------------------------------------------------------
 def _llm_kwargs() -> dict:
-    prov = st.session_state.get("llm_provider", "anthropic")
+    prov = st.session_state.get("llm_provider", "bifrost")
     if prov == "anthropic":
         key = st.session_state.get("anthropic_key", "")
     elif prov == "bifrost":
@@ -683,12 +683,20 @@ with tab3:
     if not approved:
         st.info("Approve a content brief in Tab 2 first.")
     else:
-        if st.button("🚀 Generate Draft (3-Pass Pipeline)"):
+        enhance_with_ai = st.checkbox(
+            "Enhance with AI (EEAT analysis + revision)",
+            value=st.session_state.get("enhance_with_ai", True),
+            help="When enabled, runs a second pass to analyse EEAT signals and a third pass to revise the draft. Disable for a faster, single-pass draft.",
+            key="enhance_with_ai",
+        )
+
+        button_label = "🚀 Generate Draft (3-Pass Pipeline)" if enhance_with_ai else "✍️ Generate Draft"
+        if st.button(button_label):
             locale = st.session_state["locale_config"]
             llm = _llm_kwargs()
             page_format = st.session_state.get("approved_brief_json", {}).get("metadata", {}).get("page_format", "")
 
-            # Pass 1: First draft
+            # Pass 1: First draft (always runs)
             st.subheader("Pass 1: Writing First Draft")
             with st.spinner("Writing first draft..."):
                 first_draft = call_llm(
@@ -700,46 +708,51 @@ with tab3:
             st.session_state["first_draft"] = first_draft
             st.success("First draft complete!")
 
-            # Pass 2: EEAT analysis
-            st.subheader("Pass 2: EEAT Analysis")
-            with st.spinner("Analysing EEAT signals..."):
-                eeat = call_llm(
-                    system_prompt=EEAT_SYSTEM_PROMPT,
-                    user_prompt=eeat_user_prompt(
-                        first_draft,
-                        st.session_state.get("scraped_formatted", "No competitor data available."),
-                    ),
-                    max_tokens=4096,
-                    **llm,
-                )
-            st.session_state["eeat_analysis"] = eeat
-            st.success("EEAT analysis complete!")
+            if enhance_with_ai:
+                # Pass 2: EEAT analysis
+                st.subheader("Pass 2: EEAT Analysis")
+                with st.spinner("Analysing EEAT signals..."):
+                    eeat = call_llm(
+                        system_prompt=EEAT_SYSTEM_PROMPT,
+                        user_prompt=eeat_user_prompt(
+                            first_draft,
+                            st.session_state.get("scraped_formatted", "No competitor data available."),
+                        ),
+                        max_tokens=4096,
+                        **llm,
+                    )
+                st.session_state["eeat_analysis"] = eeat
+                st.success("EEAT analysis complete!")
 
-            # Pass 3: Revision
-            st.subheader("Pass 3: Final Revision")
-            with st.spinner("Revising draft with EEAT improvements..."):
-                final = call_llm(
-                    system_prompt=revision_system_prompt(locale, page_format),
-                    user_prompt=revision_user_prompt(first_draft, eeat),
-                    max_tokens=8192,
-                    **llm,
-                )
-            st.session_state["final_draft"] = final
-            st.success("Final draft complete!")
+                # Pass 3: Revision
+                st.subheader("Pass 3: Final Revision")
+                with st.spinner("Revising draft with EEAT improvements..."):
+                    final = call_llm(
+                        system_prompt=revision_system_prompt(locale, page_format),
+                        user_prompt=revision_user_prompt(first_draft, eeat),
+                        max_tokens=8192,
+                        **llm,
+                    )
+                st.session_state["final_draft"] = final
+                st.success("Final draft complete!")
+            else:
+                # Clear stale enhanced output from a previous run so Export reflects this run only
+                st.session_state.pop("eeat_analysis", None)
+                st.session_state.pop("final_draft", None)
             st.rerun()
 
         # Display results in sub-tabs
         if st.session_state.get("first_draft"):
-            dtab1, dtab2, dtab3 = st.tabs(["First Draft", "EEAT Analysis", "Final Draft"])
-
-            with dtab1:
+            if st.session_state.get("final_draft"):
+                dtab1, dtab2, dtab3 = st.tabs(["First Draft", "EEAT Analysis", "Final Draft"])
+                with dtab1:
+                    st.markdown(st.session_state.get("first_draft", ""))
+                with dtab2:
+                    st.markdown(st.session_state.get("eeat_analysis", ""))
+                with dtab3:
+                    st.markdown(st.session_state.get("final_draft", ""))
+            else:
                 st.markdown(st.session_state.get("first_draft", ""))
-
-            with dtab2:
-                st.markdown(st.session_state.get("eeat_analysis", ""))
-
-            with dtab3:
-                st.markdown(st.session_state.get("final_draft", ""))
 
 # ===== TAB 4: Snippet Optimizer =====
 with tab4:
