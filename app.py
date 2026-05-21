@@ -91,11 +91,19 @@ LOCALE_PRESETS = {
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("🔑 API Keys")
-    anthropic_key = st.text_input("Anthropic API Key", type="password", value=st.session_state.get("anthropic_key", ""))
-    openai_key = st.text_input("OpenAI API Key", type="password", value=st.session_state.get("openai_key", ""))
-    bifrost_key = st.text_input("Bifrost API Key", type="password", value=st.session_state.get("bifrost_key", ""), help="Pattern's LLM proxy key (sk-bf-...)")
-    dataforseo_login = st.text_input("DataForSEO Login", value=st.session_state.get("dataforseo_login", ""))
-    dataforseo_password = st.text_input("DataForSEO Password", type="password", value=st.session_state.get("dataforseo_password", ""))
+
+    def _secret(name: str) -> str:
+        """Read a key from Streamlit secrets, returning '' if missing or secrets.toml is absent."""
+        try:
+            return st.secrets.get(name, "") or ""
+        except Exception:
+            return ""
+
+    anthropic_key = st.text_input("Anthropic API Key", type="password", value=st.session_state.get("anthropic_key") or _secret("ANTHROPIC_KEY"))
+    openai_key = st.text_input("OpenAI API Key", type="password", value=st.session_state.get("openai_key") or _secret("OPENAI_KEY"))
+    bifrost_key = st.text_input("Bifrost API Key", type="password", value=st.session_state.get("bifrost_key") or _secret("BIFROST_KEY"), help="Pattern's LLM proxy key (sk-bf-...)")
+    dataforseo_login = st.text_input("DataForSEO Login", value=st.session_state.get("dataforseo_login") or _secret("DATAFORSEO_LOGIN"))
+    dataforseo_password = st.text_input("DataForSEO Password", type="password", value=st.session_state.get("dataforseo_password") or _secret("DATAFORSEO_PASSWORD"))
 
     st.session_state["anthropic_key"] = anthropic_key
     st.session_state["openai_key"] = openai_key
