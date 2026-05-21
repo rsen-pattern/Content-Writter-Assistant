@@ -10,6 +10,7 @@ from utils.serp import fetch_serp_results
 from utils.internal_urls import get_internal_urls
 from utils.scraper import full_scrape, light_scrape, format_competitor_data, format_internal_data
 from utils.keyword_research import fetch_keyword_data, format_keyword_data_for_llm
+from utils.brief_upload import extract_brief_text
 from utils.llm import call_llm, parse_llm_json, BIFROST_MODELS
 from utils.google_docs import export_markdown_fallback
 from prompts.content_brief import build_brief_prompt
@@ -490,9 +491,62 @@ def _brief_json_to_markdown(brief: dict) -> str:
 with tab2:
     st.header("Content Brief Review")
 
-    brief = st.session_state.get("raw_brief_json")
+    # ---- Upload existing brief (skip SERP + scrape) ----
+    uploaded_active = st.session_state.get("approved_brief") and st.session_state.get("approved_brief_json", {}).get("_uploaded")
 
-    if not brief and st.session_state.get("raw_brief_text"):
+    if uploaded_active:
+        st.success("✅ Using uploaded brief. Go to Tab 3 to generate the draft.")
+        c1, c2 = st.columns([1, 5])
+        if c1.button("🗑️ Clear uploaded brief"):
+            st.session_state.pop("approved_brief", None)
+            st.session_state.pop("approved_brief_json", None)
+            st.rerun()
+        with st.expander("Preview uploaded brief"):
+            st.markdown(st.session_state["approved_brief"])
+    else:
+        with st.expander("📥 Skip the pipeline — upload an existing brief", expanded=False):
+            st.caption(
+                "Paste your brief or upload a .md / .txt / .docx file. The uploaded "
+                "content is treated as the final approved brief — you can jump straight "
+                "to Tab 3 to generate the draft."
+            )
+            upload_file = st.file_uploader("Upload brief file", type=["md", "markdown", "txt", "docx"], key="brief_upload_file")
+            upload_paste = st.text_area("...or paste brief markdown here", height=200, key="brief_upload_paste")
+
+            if st.button("Use this brief", type="primary"):
+                try:
+                    if upload_file is not None:
+                        text = extract_brief_text(upload_file)
+                    elif upload_paste.strip():
+                        text = upload_paste.strip()
+                    else:
+                        st.error("Provide a file or paste brief text first.")
+                        text = ""
+
+                    if text:
+                        st.session_state["approved_brief"] = text
+                        st.session_state["approved_brief_json"] = {
+                            "_uploaded": True,
+                            "metadata": {
+                                "page_format": "",
+                                "secondary_keywords": [],
+                            },
+                        }
+                        # Wipe any previously-generated draft state so the user starts clean
+                        for k in ("first_draft", "eeat_analysis", "final_draft", "snippet_results"):
+                            st.session_state.pop(k, None)
+                        st.success("Brief loaded. Open Tab 3 to generate the draft.")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Couldn't read brief: {e}")
+
+        st.divider()
+
+    brief = None if uploaded_active else st.session_state.get("raw_brief_json")
+
+    if uploaded_active:
+        pass  # Uploaded brief replaces the generated-brief editor below.
+    elif not brief and st.session_state.get("raw_brief_text"):
         st.warning("Brief couldn't be parsed as JSON. Edit the raw text below.")
         edited = st.text_area("Raw Brief", value=st.session_state["raw_brief_text"], height=600)
         if st.button("Try Parse Again"):
