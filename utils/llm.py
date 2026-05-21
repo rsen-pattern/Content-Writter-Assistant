@@ -2,7 +2,37 @@
 
 from __future__ import annotations
 import json
+import os
 import streamlit as st
+
+
+_PROVIDER_ENV_VARS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "bifrost": "BIFROST_API_KEY",
+}
+
+_PROVIDER_LABELS = {
+    "anthropic": "Anthropic",
+    "openai": "OpenAI",
+    "bifrost": "Bifrost",
+}
+
+
+def _resolve_api_key(provider: str, api_key: str) -> str:
+    """Return a usable key, falling back to env var, or raise a clear error."""
+    if api_key:
+        return api_key
+    env_var = _PROVIDER_ENV_VARS.get(provider, "")
+    if env_var:
+        env_val = os.environ.get(env_var, "")
+        if env_val:
+            return env_val
+    label = _PROVIDER_LABELS.get(provider, provider)
+    raise ValueError(
+        f"Missing {label} API key. Enter it in the sidebar under '🔑 API Keys' "
+        f"or set the {env_var} environment variable."
+    )
 
 
 def _get_locale_suffix() -> str:
@@ -57,7 +87,7 @@ def _call_anthropic(
     import anthropic
 
     model = model or "claude-sonnet-4-20250514"
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=_resolve_api_key("anthropic", api_key))
     message = client.messages.create(
         model=model,
         max_tokens=max_tokens,
@@ -80,7 +110,7 @@ def _call_openai(
     from openai import OpenAI
 
     model = model or "gpt-4o"
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=_resolve_api_key("openai", api_key))
 
     kwargs: dict = {
         "model": model,
@@ -126,7 +156,7 @@ def _call_bifrost(
     from openai import OpenAI
 
     model = model or "openai/gpt-4o"
-    client = OpenAI(base_url=BIFROST_BASE_URL, api_key=api_key)
+    client = OpenAI(base_url=BIFROST_BASE_URL, api_key=_resolve_api_key("bifrost", api_key))
 
     kwargs: dict = {
         "model": model,

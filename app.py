@@ -104,7 +104,7 @@ with st.sidebar:
     st.session_state["dataforseo_password"] = dataforseo_password
 
     st.header("⚙️ LLM Settings")
-    provider = st.selectbox("Provider", ["anthropic", "openai", "bifrost"])
+    provider = st.selectbox("Provider", ["bifrost", "anthropic", "openai"])
     if provider == "anthropic":
         model = st.selectbox("Model", ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-20250514"])
     elif provider == "openai":
@@ -139,7 +139,7 @@ with st.sidebar:
 # Helper: get LLM config
 # ---------------------------------------------------------------------------
 def _llm_kwargs() -> dict:
-    prov = st.session_state.get("llm_provider", "anthropic")
+    prov = st.session_state.get("llm_provider", "bifrost")
     if prov == "anthropic":
         key = st.session_state.get("anthropic_key", "")
     elif prov == "bifrost":
