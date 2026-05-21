@@ -12,6 +12,13 @@ _PROVIDER_ENV_VARS = {
     "bifrost": "BIFROST_API_KEY",
 }
 
+# Names used in .streamlit/secrets.toml (and the sidebar fallback)
+_PROVIDER_SECRET_KEYS = {
+    "anthropic": "ANTHROPIC_KEY",
+    "openai": "OPENAI_KEY",
+    "bifrost": "BIFROST_KEY",
+}
+
 _PROVIDER_LABELS = {
     "anthropic": "Anthropic",
     "openai": "OpenAI",
@@ -20,18 +27,29 @@ _PROVIDER_LABELS = {
 
 
 def _resolve_api_key(provider: str, api_key: str) -> str:
-    """Return a usable key, falling back to env var, or raise a clear error."""
+    """Return a usable key, falling back to env var or st.secrets, or raise a clear error."""
     if api_key:
         return api_key
+
     env_var = _PROVIDER_ENV_VARS.get(provider, "")
     if env_var:
         env_val = os.environ.get(env_var, "")
         if env_val:
             return env_val
+
+    secret_key = _PROVIDER_SECRET_KEYS.get(provider, "")
+    if secret_key:
+        try:
+            val = st.secrets.get(secret_key, "") or ""
+            if val:
+                return val
+        except Exception:
+            pass
+
     label = _PROVIDER_LABELS.get(provider, provider)
     raise ValueError(
-        f"Missing {label} API key. Enter it in the sidebar under '🔑 API Keys' "
-        f"or set the {env_var} environment variable."
+        f"Missing {label} API key. Enter it in the sidebar under '🔑 API Keys', "
+        f"add {secret_key} to .streamlit/secrets.toml, or set the {env_var} environment variable."
     )
 
 

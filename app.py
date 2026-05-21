@@ -434,6 +434,58 @@ with tab1:
                 st.session_state["raw_brief_json"] = None
                 st.session_state["raw_brief_text"] = raw
 
+
+def _brief_json_to_markdown(brief: dict) -> str:
+    """Convert approved brief JSON to a formatted markdown string for the draft writer."""
+    lines = ["# Content Brief\n"]
+
+    meta = brief.get("metadata", {})
+    lines.append("## Metadata")
+    for key, val in meta.items():
+        if key in ("primary_keywords", "secondary_keywords", "internal_links"):
+            continue
+        lines.append(f"- **{key.replace('_', ' ').title()}**: {val}")
+
+    lines.append("\n### Primary Keywords")
+    for kw in meta.get("primary_keywords", []):
+        lines.append(f"- {kw.get('keyword', '')} (vol: {kw.get('search_volume', 'N/A')})")
+
+    lines.append("\n### Secondary Keywords")
+    for kw in meta.get("secondary_keywords", []):
+        lines.append(f"- {kw.get('keyword', '')}")
+
+    lines.append("\n### Internal Links")
+    for link in meta.get("internal_links", []):
+        lines.append(f"- [{link.get('anchor_text', '')}]({link.get('url', '')}) — {link.get('placement_note', '')}")
+
+    lines.append("\n## Content Outline")
+    for h in brief.get("content_outline", []):
+        prefix = "#" * (int(h.get("level", "H2")[1]) if h.get("level", "H2")[1:].isdigit() else 2)
+        lines.append(f"\n{prefix} {h.get('text', '')}")
+        lines.append(f"*Instructions: {h.get('instructions', '')}*")
+
+    faqs = brief.get("faqs", [])
+    if faqs:
+        lines.append("\n## FAQs")
+        for faq in faqs:
+            lines.append(f"\n**Q: {faq.get('question', '')}**")
+            lines.append(f"Answer direction: {faq.get('answer_direction', '')}")
+
+    chart = brief.get("chart_table_ideas", "")
+    if chart:
+        lines.append(f"\n## Chart & Table Ideas\n{chart}")
+
+    eeat = brief.get("eeat_ideas", "")
+    if eeat:
+        lines.append(f"\n## EEAT Ideas\n{eeat}")
+
+    notes = brief.get("additional_notes", "")
+    if notes:
+        lines.append(f"\n## Additional Notes\n{notes}")
+
+    return "\n".join(lines)
+
+
 # ===== TAB 2: Content Brief (Review Gate) =====
 with tab2:
     st.header("Content Brief Review")
@@ -670,57 +722,6 @@ with tab2:
             md = _brief_json_to_markdown(approved_json)
             st.session_state["approved_brief"] = md
             st.success("Brief approved! Go to Tab 3 to generate the draft.")
-
-
-def _brief_json_to_markdown(brief: dict) -> str:
-    """Convert approved brief JSON to a formatted markdown string for the draft writer."""
-    lines = ["# Content Brief\n"]
-
-    meta = brief.get("metadata", {})
-    lines.append("## Metadata")
-    for key, val in meta.items():
-        if key in ("primary_keywords", "secondary_keywords", "internal_links"):
-            continue
-        lines.append(f"- **{key.replace('_', ' ').title()}**: {val}")
-
-    lines.append("\n### Primary Keywords")
-    for kw in meta.get("primary_keywords", []):
-        lines.append(f"- {kw.get('keyword', '')} (vol: {kw.get('search_volume', 'N/A')})")
-
-    lines.append("\n### Secondary Keywords")
-    for kw in meta.get("secondary_keywords", []):
-        lines.append(f"- {kw.get('keyword', '')}")
-
-    lines.append("\n### Internal Links")
-    for link in meta.get("internal_links", []):
-        lines.append(f"- [{link.get('anchor_text', '')}]({link.get('url', '')}) — {link.get('placement_note', '')}")
-
-    lines.append("\n## Content Outline")
-    for h in brief.get("content_outline", []):
-        prefix = "#" * (int(h.get("level", "H2")[1]) if h.get("level", "H2")[1:].isdigit() else 2)
-        lines.append(f"\n{prefix} {h.get('text', '')}")
-        lines.append(f"*Instructions: {h.get('instructions', '')}*")
-
-    faqs = brief.get("faqs", [])
-    if faqs:
-        lines.append("\n## FAQs")
-        for faq in faqs:
-            lines.append(f"\n**Q: {faq.get('question', '')}**")
-            lines.append(f"Answer direction: {faq.get('answer_direction', '')}")
-
-    chart = brief.get("chart_table_ideas", "")
-    if chart:
-        lines.append(f"\n## Chart & Table Ideas\n{chart}")
-
-    eeat = brief.get("eeat_ideas", "")
-    if eeat:
-        lines.append(f"\n## EEAT Ideas\n{eeat}")
-
-    notes = brief.get("additional_notes", "")
-    if notes:
-        lines.append(f"\n## Additional Notes\n{notes}")
-
-    return "\n".join(lines)
 
 
 # ===== TAB 3: EEAT Draft =====
