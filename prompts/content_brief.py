@@ -16,6 +16,7 @@ TARGET KEYWORD: "{keyword}"
 TARGET MARKET: {country}
 LANGUAGE: {language_variant}
 
+{keyword_data}
 COMPETITOR DATA:
 {competitor_data}
 
@@ -97,6 +98,7 @@ def build_brief_prompt(
     competitor_data: str,
     internal_data: str,
     people_also_ask: list[str],
+    keyword_data_md: str = "",
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for content brief generation."""
     paa_str = "\n".join(f"- {q}" for q in people_also_ask) if people_also_ask else "None found."
@@ -105,6 +107,7 @@ def build_brief_prompt(
         keyword=keyword,
         country=locale_config.get("country", ""),
         language_variant=locale_config.get("language_variant", ""),
+        keyword_data=(keyword_data_md + "\n\n") if keyword_data_md else "",
         competitor_data=competitor_data,
         internal_data=internal_data,
         people_also_ask=paa_str,
